@@ -23,11 +23,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 環境変数の読み込み
-load_dotenv()
-API_KEY = os.getenv('YOUTUBE_API_KEY')
-MIN_SUBSCRIBER_COUNT = int(os.getenv('MIN_SUBSCRIBER_COUNT', '100000'))  # 10万未満除外
-
 # Google Sheets APIのスコープ
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
@@ -46,7 +41,7 @@ def extract_email(description: str) -> str:
 
 class YouTubeChannelCollector:
     def __init__(self):
-        self.youtube = build('youtube', 'v3', developerKey=API_KEY)
+        self.youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
         self.existing_channels = set() # スプレッドシートに書き出す際に重複チェックを行うため、既存チャンネルを保持
         self.sheets_service = self._authenticate_google_sheets()
         
@@ -237,8 +232,14 @@ class YouTubeChannelCollector:
             logger.info("新規チャンネルが取得されなかったため、スプレッドシートへの書き込みはスキップされました。")
 
 if __name__ == '__main__':
-    if not API_KEY:
-        raise ValueError("YouTube APIキーが設定されていません。")
+
+    # 環境変数の読み込み
+    load_dotenv()
+    YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
+    MIN_SUBSCRIBER_COUNT = int(os.getenv('MIN_SUBSCRIBER_COUNT', '100000'))  # 10万未満除外
+
+    if not YOUTUBE_API_KEY:
+        raise ValueError("YOUTUBE_API_KEYが設定されていません。")
 
     # スプレッドシートIDを環境変数から取得
     SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
