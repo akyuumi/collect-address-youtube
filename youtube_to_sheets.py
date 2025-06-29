@@ -174,7 +174,7 @@ class YouTubeChannelCollector:
         return channels
     
     def write_to_spreadsheet(self, data: List[Dict], spreadsheet_id: str, range_name: str = 'Sheet1!A1'):
-        """データをGoogleスプレッドシートに書き込む""
+        """データをGoogleスプレッドシートに書き込む"""
         if not data:
             logger.info("書き込むデータがありません。")
             return
@@ -203,7 +203,7 @@ class YouTubeChannelCollector:
             logger.error(f"スプレッドシートへの書き込みに失敗しました: {str(e)}")
 
     def run(self, spreadsheet_id: str):
-        """メイン処理の実行""
+        """メイン処理の実行"""
         logger.info(f"バッチ処理を開始します。")
         
         # カテゴリIDの読み込み
