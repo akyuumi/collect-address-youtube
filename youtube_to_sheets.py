@@ -9,8 +9,7 @@ from typing import List, Dict, Set
 
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 
 # ロギングの設定
@@ -46,31 +45,32 @@ class YouTubeChannelCollector:
         self.sheets_service = self._authenticate_google_sheets()
         
     def _authenticate_google_sheets(self):
-        creds = None
-        # token.jsonは、ユーザーのアクセストークンとリフレッシュトークンを保存します。
-        # 初回認証時に自動的に作成されます。
-        if os.path.exists('token.json'):
-            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-        
-        # 認証情報がない、または期限切れの場合
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', SCOPES)
-                creds = flow.run_local_server(port=0)
-            # 次回のために認証情報を保存
-            with open('token.json', 'w') as token:
-                token.write(creds.to_json())
-        
-        return build('sheets', 'v4', credentials=creds)
+        """Google Sheets APIの認証（環境変数からサービスアカウントキーを読み込み）"""
+        try:
+            # 環境変数からサービスアカウントキーのJSONを取得
+            service_account_info = os.getenv('GOOGLE_SERVICE_ACCOUNT_KEY')
+            if not service_account_info:
+                raise ValueError("GOOGLE_SERVICE_ACCOUNT_KEY環境変数が設定されていません。")
+            
+            # JSON文字列をパース
+            service_account_dict = json.loads(service_account_info)
+            
+            # サービスアカウント認証情報を作成
+            credentials = service_account.Credentials.from_service_account_info(
+                service_account_dict, scopes=SCOPES
+            )
+            
+            return build('sheets', 'v4', credentials=credentials)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"サービスアカウントキーのJSON形式が不正です: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Google Sheets APIの認証に失敗しました: {str(e)}")
+            raise
 
     def _load_category_ids(self) -> List[Dict]:
         """カテゴリIDの設定を読み込み"""
-        # sample-bat/config/category_ids.json を参照
-        # このファイルは、youtube_to_sheets.py と同じ階層に配置するか、パスを適切に設定する必要があります。
-        # 今回は、youtube_to_sheets.py と同じ階層に config ディレクトリを作成し、その中に配置する前提とします。
         try:
             with open('config/category_ids.json', 'r', encoding='utf-8') as f:
                 return json.load(f)['categories']
@@ -201,6 +201,18 @@ class YouTubeChannelCollector:
         """メイン処理の実行"""
         logger.info(f"バッチ処理を開始します。")
         
+        # デバッグ用：シート一覧を取得して表示
+        try:
+            sheets_metadata = self.sheets_service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
+            ).execute()
+            sheets = sheets_metadata.get('sheets', [])
+            logger.info("利用可能なシート:")
+            for sheet in sheets:
+                logger.info(f"  - {sheet['properties']['title']}")
+        except Exception as e:
+            logger.warning(f"シート一覧の取得に失敗しました: {str(e)}")
+        
         # カテゴリIDの読み込み
         categories = self._load_category_ids()
         all_new_channels = []
@@ -227,7 +239,11 @@ class YouTubeChannelCollector:
         
         # スプレッドシートに書き込み
         if all_new_channels:
-            self.write_to_spreadsheet(all_new_channels, spreadsheet_id)
+            # シート名を環境変数から取得（デフォルトは'Sheet1'）
+            sheet_name = os.getenv('SHEET_NAME', 'Sheet1')
+            range_name = f'{sheet_name}!A1'
+            logger.info(f"シート '{sheet_name}' にデータを書き込みます")
+            self.write_to_spreadsheet(all_new_channels, spreadsheet_id, range_name)
         else:
             logger.info("新規チャンネルが取得されなかったため、スプレッドシートへの書き込みはスキップされました。")
 
@@ -245,6 +261,11 @@ if __name__ == '__main__':
     SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
     if not SPREADSHEET_ID:
         raise ValueError("SPREADSHEET_IDが設定されていません。")
+
+    # サービスアカウントキーの環境変数チェック
+    GOOGLE_SERVICE_ACCOUNT_KEY = os.getenv('GOOGLE_SERVICE_ACCOUNT_KEY')
+    if not GOOGLE_SERVICE_ACCOUNT_KEY:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT_KEY環境変数が設定されていません。")
 
     collector = YouTubeChannelCollector()
     collector.run(SPREADSHEET_ID)
