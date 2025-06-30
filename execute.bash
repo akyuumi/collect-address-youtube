@@ -31,4 +31,4 @@ if [ $STATUS -eq 0 ]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] バッチ処理正常終了" >> "$LOG_FILE"
 else
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] バッチ処理異常終了 (status=$STATUS)" >> "$LOG_FILE"
-fi %  
+fi
