@@ -32,7 +32,7 @@ def extract_email(description: str) -> str:
         return "取得失敗"
     
     # メールアドレスのパターン
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}'
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     match = re.search(email_pattern, description)
     
     if match:
@@ -252,54 +252,31 @@ class YouTubeChannelCollector:
             logger.error(f"スプレッドシートへの書き込みに失敗しました: {str(e)}")
 
     def send_slack_notification(self, new_channels: List[Dict]):
-        """Slackに新規チャンネル情報を通知"""
-        # メールアドレスが取得できた件数
+        """Slackに実行結果を通知"""
+        fetched_count = len(new_channels)
+        added_count = len(new_channels)
         email_count = sum(1 for c in new_channels if c.get('email') and c['email'] != '取得失敗')
-        if not new_channels:
-            message = (
-                "🎉 YouTubeチャンネル収集バッチ実行完了！\n\n"
-                "📊 **実行結果**\n"
-                "• 新規取得チャンネル数: 0件\n"
-                f"• メールアドレス取得件数: 0件\n"
-                f"• 実行時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                "新たに取得できたチャンネルはありませんでした。\n"
-            )
-            payload = {"text": message}
-            try:
-                response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
-                if response.status_code == 200:
-                    logger.info("Slack通知を送信しました（0件）。")
-                else:
-                    logger.error(f"Slack通知の送信に失敗しました。ステータスコード: {response.status_code}")
-            except Exception as e:
-                logger.error(f"Slack通知の送信中にエラーが発生しました: {str(e)}")
-            logger.info(f"メールアドレス取得件数: 0件 (新規チャンネル数: 0)")
-            return
+        total_count = len(self.existing_channels) + added_count
+
+        # Slackに通知するメッセージを作成
+        message = (
+            f"🎉 YouTubeチャンネル収集バッチ実行完了！\n\n"
+            f"📊 **実行結果**\n"
+            f"• 取得チャンネル数: {fetched_count}件\n"
+            f"• 新規追加チャンネル数: {added_count}件\n"
+            f"• メールアドレス正常抽出数: {email_count}件\n"
+            f"• 総チャンネル数: {total_count}件\n"
+            f"• 出力先URL: https://docs.google.com/spreadsheets/d/11DqIAdm9ofnr9Zip8YQP2-yqdK4UOf_DTx_eiuJXVmw/edit?gid=0#gid=0\n"
+        )
+
+        payload = {"text": message}
+        
         try:
-            message = f"🎉 YouTubeチャンネル収集バッチ実行完了！\n\n"
-            message += f"📊 **実行結果**\n"
-            message += f"• 新規取得チャンネル数: {len(new_channels)}件\n"
-            message += f"• メールアドレス取得件数: {email_count}件\n"
-            message += f"• 実行時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            if new_channels:
-                message += f"📋 **新規チャンネル一覧**\n"
-                for i, channel in enumerate(new_channels[:10], 1):  # 最大10件まで表示
-                    message += f"{i}. **{channel['title']}**\n"
-                    message += f"   • チャンネルID: `{channel['channel_id']}`\n"
-                    message += f"   • メールアドレス: {channel['email']}\n"
-                    message += f"   • 登録者数: {channel['subscriber_count']:,}\n"
-                    message += f"   • 総再生回数: {channel['view_count']:,}\n"
-                    message += f"   • 動画数: {channel['video_count']:,}\n\n"
-                if len(new_channels) > 10:
-                    message += f"... 他 {len(new_channels) - 10}件のチャンネルも取得されました。\n\n"
-            payload = {"text": message}
             response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
             if response.status_code == 200:
                 logger.info("Slack通知を送信しました。")
             else:
                 logger.error(f"Slack通知の送信に失敗しました。ステータスコード: {response.status_code}")
-            # ログにも出力
-            logger.info(f"メールアドレス取得件数: {email_count}件 (新規チャンネル数: {len(new_channels)})")
         except Exception as e:
             logger.error(f"Slack通知の送信中にエラーが発生しました: {str(e)}")
 
