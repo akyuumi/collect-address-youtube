@@ -104,10 +104,11 @@ class YouTubeChannelCollector:
             logger.error("config/category_ids.json の形式が不正です。")
             return []
     
-    def get_popular_videos(self, category_id: str) -> List[str]:
-        """人気動画からチャンネルIDを取得"""
+    def get_popular_videos(self, category_id: str) -> tuple[int, list[str]]:
+        """人気動画からチャンネルIDを取得し、総取得数と新規IDリストを返す"""
         try:
-            channel_ids = set()
+            all_channel_ids = set()
+            new_channel_ids = set()
             next_page_token = None
             daily_limit = 10000  # YouTube Data APIの1日のクォータ制限
             total_quota = 0
@@ -123,29 +124,27 @@ class YouTubeChannelCollector:
                 )
                 response = request.execute()
                 
-                # クォータ消費量の計算（videos.listは1リクエストあたり1クォータ）
                 total_quota += 1
                 
                 for item in response.get('items', []):
                     channel_id = item['snippet']['channelId']
+                    all_channel_ids.add(channel_id)
                     if channel_id not in self.existing_channels:
-                        channel_ids.add(channel_id)
+                        new_channel_ids.add(channel_id)
                 
-                # 次のページのトークンを取得
                 next_page_token = response.get('nextPageToken')
                 
-                # 次のページがない場合、またはクォータ制限に達した場合は終了
                 if not next_page_token or total_quota >= daily_limit:
                     break
                 
-                # API制限を考慮して少し待機
                 time.sleep(1)
             
-            logger.info(f"カテゴリID[{category_id}]で{len(channel_ids)}件のチャンネルを取得しました。")
-            return list(channel_ids)
+            fetched_count = len(all_channel_ids)
+            logger.info(f"カテゴリID[{category_id}]で{fetched_count}件のユニークチャンネルを発見し、うち{len(new_channel_ids)}件が新規でした。")
+            return fetched_count, list(new_channel_ids)
         except Exception as e:
             logger.error(f"動画の取得に失敗しました。カテゴリID[{category_id}]: {str(e)}")
-            return []
+            return 0, []
     
     def get_channel_details(self, channel_ids: List[str]) -> List[Dict]:
         """チャンネル詳細情報を取得"""
@@ -251,11 +250,11 @@ class YouTubeChannelCollector:
         except Exception as e:
             logger.error(f"スプレッドシートへの書き込みに失敗しました: {str(e)}")
 
-    def send_slack_notification(self, new_channels: List[Dict]):
+    def send_slack_notification(self, fetched_count: int, new_channels: List[Dict]):
         """Slackに実行結果を通知"""
-        fetched_count = len(new_channels)
         added_count = len(new_channels)
         email_count = sum(1 for c in new_channels if c.get('email') and c['email'] != '取得失敗')
+        # 総チャンネル数は、実行前の既存数 + 今回新たに追加された数
         total_count = len(self.existing_channels) + added_count
 
         # Slackに通知するメッセージを作成
@@ -284,42 +283,35 @@ class YouTubeChannelCollector:
         """メイン処理の実行"""
         logger.info(f"バッチ処理を開始します。")
         
-        # カテゴリIDの読み込み
         categories = self._load_category_ids()
+        total_fetched_count = 0
         all_new_channels = []
         
-        # カテゴリごとに処理
         for category in categories:
             logger.info(f"処理中 カテゴリ: {category['name']} (ID: {category['id']})")
             
-            # 人気動画からチャンネルIDを取得
-            channel_ids = self.get_popular_videos(category['id'])
+            fetched_count, new_channel_ids = self.get_popular_videos(category['id'])
+            total_fetched_count += fetched_count
             
-            if channel_ids:
-                # チャンネル詳細を取得
-                channels: List[Dict] = self.get_channel_details(channel_ids)
+            if new_channel_ids:
+                channels: List[Dict] = self.get_channel_details(new_channel_ids)
                 all_new_channels.extend(channels)
                 
-                new_channels_count = len(channels)
-                logger.info(f"Fetched {new_channels_count} new channels in category {category['name']}")
+                logger.info(f"{len(channels)} new channels added from category {category['name']}")
             
-            # API制限を考慮して少し待機
             time.sleep(1)
         
-        logger.info(f"処理が完了しました。合計取得チャンネル数: {len(all_new_channels)}")
+        logger.info(f"処理が完了しました。合計取得チャンネル数: {total_fetched_count}, 新規追加対象: {len(all_new_channels)}")
         
-        # スプレッドシートに書き込み
         if all_new_channels:
-            # シート名を環境変数から取得（デフォルトは'Sheet1'）
             sheet_name = os.getenv('SHEET_NAME', 'Sheet1')
             logger.info(f"シート '{sheet_name}' にデータを書き込みます")
             self.write_to_spreadsheet(all_new_channels, spreadsheet_id, sheet_name)
         else:
             logger.info("新規チャンネルが取得されなかったため、スプレッドシートへの書き込みはスキップされました。")
 
-        # Slack通知
-        logger.info(f"Slack通知処理を開始します。新規チャンネル数: {len(all_new_channels)}")
-        self.send_slack_notification(all_new_channels)
+        logger.info(f"Slack通知処理を開始します。")
+        self.send_slack_notification(total_fetched_count, all_new_channels)
 
 if __name__ == '__main__':
 
